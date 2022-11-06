@@ -6,7 +6,7 @@ pub struct RcMarker;
 
 impl RefCountedFamily for RcMarker {
     type Ptr<T: ?Sized> = Rc<T>;
-    fn new<T>(value: T) -> Rc<T> {
+    fn new<T: ?Sized>(value: T) -> Rc<T> {
         Rc::new(value)
     }
 }

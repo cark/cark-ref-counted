@@ -5,26 +5,60 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 pub trait RefCountedMarker {
-    type Ptr<T: ?Sized>: RefCounted<T, Family = Self>;
+    type Ptr<T: ?Sized>: RefCounted<T, Marker = Self>;
     fn new<T>(value: T) -> Self::Ptr<T>;
 }
 
-pub trait RefCounted<T: ?Sized>: Deref<Target = T> + Clone {
-    type Family: RefCountedMarker<Ptr<T> = Self>;
+pub trait RefCounted<T: ?Sized>: Deref<Target = T> {
+    type Marker: RefCountedMarker<Ptr<T> = Self>;
+    fn is_ref_counted(&self) -> bool {
+        true
+    }
 }
 
 pub struct RcMark;
 
 impl RefCountedMarker for RcMark {
     type Ptr<T: ?Sized> = Rc<T>;
-    fn new<T>(value: T) -> Rc<T> {
+    fn new<T>(value: T) -> Self::Ptr<T> {
         Rc::new(value)
     }
 }
 
 impl<T: ?Sized> RefCounted<T> for Rc<T> {
-    type Family = RcMark;
+    type Marker = RcMark;
 }
+
+// pub struct RcDynMark;
+// impl RefCountedMarker for RcDynMark {
+//     type Ptr<T: ?Sized> = Rc<T>;
+//     fn new(value: impl T) -> Self::Ptr<dyn T> {
+//         Rc::new(value)
+//     }
+// }
+
+// impl<T: ?Sized> RefCounted<T> for Rc<dyn T> {
+//     type Marker = RcMark;
+// }
+
+// pub trait RefCountedDyn {
+//     type Type;
+//     type Dyn<D> = dyn D;
+//     type Marker: RefCountedDynMarker<Ptr<T> = Self, Dyn<T> = dyn T>;
+// }
+
+// pub trait RefCountedDynMarker {
+//     type Ptr<T>: RefCountedDyn<Marker = Self, Type = T>;
+//     type Dyn<T>;
+//     //    fn get_bleh() -> &'static Bleh<A = impl A, B = dyn T>;
+//     //    fn new<T>(value: impl T) -> Self::Ptr<dyn T>;
+// }
+
+// pub trait Bleh {
+//     type A<T>;
+//     type B<T>;
+//     fn new(value: A) -> B;
+// }
 
 #[cfg(test)]
 mod tests {
@@ -65,31 +99,117 @@ mod tests {
         let _a: &Foo = b.0.deref();
     }
 
-    // type FnType = dyn Fn(f32) -> f32;
+    type FnType = dyn Fn(f32) -> f32 + 'static;
 
-    // struct Bar<RC: RefCounted<FnType>>(RC);
+    struct Bar<RC: RefCounted<dyn Fn(f32) -> f32>>(RC);
 
-    // impl<RC: RefCounted<FnType>> Bar<RC> {
-    //     fn new<M: RefCountedFamily<Ptr<FnType> = RC>>(pre_wrapped: RC) -> Self {
-    //         Self(pre_wrapped)
-    //     }
-    //     //        fn wrap<>
-    // }
+    impl<RC: RefCounted<dyn Fn(f32) -> f32>> Bar<RC> {
+        fn new<M: RefCountedMarker<Ptr<dyn Fn(f32) -> f32> = RC>>(pre_wrapped: RC) -> Self {
+            Self(pre_wrapped)
+        }
 
-    // fn add_one(value: f32) -> f32 {
-    //     value + 1.0
-    // }
+        // fn wrap<M: RefCountedMarker<Ptr<FnType> = RC>>(
+        //     value: impl Fn(f32) -> f32 + 'static,
+        // ) -> Self {
+        //     //let a: RC = M::new(value);
+        //     let a: Rc<FnType> = Rc::new(value);
+        //     Self(a)
+        //     //            todo!()
+        //     //            Self(M::new::<dyn Fn(f32) -> f32>(value))
+        // }
 
-    // #[test]
-    // fn wraping_a_fn() {
-    //     let a = Bar::new::<RcMarker>(Rc::new(add_one));
-    //     assert!(a.0(2.0) == 3.0);
-    // }
+        // fn wrap<
+        //     //            C: Fn(f32) -> f32 + 'static,
+        //     M: RefCountedMarker<Ptr<dyn Fn(f32) -> f32> = RC>,
+        // >(
+        //     value: impl Fn(f32) -> f32 + 'static,
+        // ) -> Self {
+        //     //            let a: Box<dyn Fn(f32) -> f32 + 'static> = Box::new(value);
+        //     let a = as_rc(value);
+        //     Self(a)
+        // }
+        // fn wrap<C: Fn(f32) -> f32, M: RefCountedMarker<Ptr<FnType> = RC>>(value: C) -> Self {
+        //     Self(M::new::<dyn Fn(f32) -> f32>(value))
+        // }
+        // fn wrap<
+        //     C: Fn(f32) -> f32 + 'static,
+        //     M: RefCountedMarker<Ptr<dyn Fn(f32) -> f32 + 'static> = RC>,
+        // >(
+        //     value: C,
+        // ) -> Self {
+        //     let a: Box<dyn Fn(f32) -> f32 + 'static> = Box::new(value);
+        //     Self(M::new(a))
+        // }
+    }
 
-    // #[test]
-    // fn wrapping_a_closure() {
-    //     //        let a = Bar::new::<RcMarker>
-    // }
+    fn add_one(value: f32) -> f32 {
+        value + 1.0
+    }
+
+    fn as_rc(f: impl Fn(f32) -> f32 + 'static) -> Rc<dyn Fn(f32) -> f32 + 'static> {
+        Rc::new(f)
+    }
+
+    #[test]
+    fn wraping_a_fn() {
+        let a = Bar::new::<RcMark>(Rc::new(add_one));
+        //this is already a problem ... why do we need to specify the mark ?
+        //let a = Bar::new(Rc::new(add_one));
+        assert!(a.0(2.0) == 3.0);
+        let z = 1.0f32;
+        let a = move |a: f32| a + z;
+        let b = as_rc(a);
+        assert!(b(2.0) == 3.0);
+
+        //        let rc =
+        //        let f: Fn(f32) -> f32 = add_one;
+        //        let a = Bar::wrap::<fn(f32) -> f32, RcMark>(add_one as _);
+    }
+
+    #[test]
+    fn wrapping_a_closure_without_abstraction() {
+        let added = 1.0f32;
+        let f = move |x: f32| x + added;
+        let multiplied = 2.0f32;
+        let f2 = move |x: f32| x * multiplied;
+        let rcf: Rc<dyn Fn(f32) -> f32> = Rc::new(f);
+        let rcf2: Rc<dyn Fn(f32) -> f32> = Rc::new(f2);
+        assert!(rcf2(2.0) == 4.0);
+        let _v = vec![rcf, rcf2];
+    }
+    #[test]
+    fn wrapping_a_closure() {
+        let added = 1.0f32;
+        let f = move |x: f32| x + added;
+        let multiplied = 2.0f32;
+        let f2 = move |x: f32| x * multiplied;
+        let rcf: Rc<dyn Fn(f32) -> f32> = RcMark::new(f);
+        let rcf2: Rc<dyn Fn(f32) -> f32> = RcMark::new(f2);
+        assert!(rcf2(2.0) == 4.0);
+        let _v = vec![rcf, rcf2];
+
+        // again but with an abstract coerce
+        let added = 1.0f32;
+        let f = move |x: f32| x + added;
+        let multiplied = 2.0f32;
+        let f2 = move |x: f32| x * multiplied;
+        //        let rcf = RcMark::new::<dyn Fn(f32) -> f32>(f);
+        //assert!(rcf.is_ref_counted())
+        // let rcf2: Rc<dyn Fn(f32) -> f32> = RcMark::new(f2);
+        // assert!(rcf2(2.0) == 4.0);
+        // let _v = vec![rcf, rcf2];
+
+        // let added = 1.0f32;
+        // let f = move |x: f32| x + added;
+        // assert!(f(2.0) == 3.0);
+        // let rcf: Rc<> = RcMark::new(f);
+        // assert!(rcf(2.0) == 3.0);
+        // let multiplied = 2.0f32;
+        // let f2 = move |x: f32| x * multiplied;
+        // let rcf2 = RcMark::new(f2);
+        // assert!(rcf2(2.0) == 4.0);
+        // let _v = vec![rcf, rcf2];
+    }
 
     //type MyFn = dyn Fn(f32) -> f32;
 

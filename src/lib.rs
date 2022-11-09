@@ -1,7 +1,5 @@
 #![cfg_attr(feature = "nightly", feature(coerce_unsized))]
 /*!
-# cark-ref-counted
-
 A [GATs](https://blog.rust-lang.org/2022/10/28/gats-stabilization.html) powered abstraction for reference counted smart pointers.
 
 ## What is it for

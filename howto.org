@@ -1,2 +1,4 @@
 * Test with nightly:
 cargo watch -c -x "test --features nightly"
+* update README.md
+cargo readme > README.md

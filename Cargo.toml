@@ -2,6 +2,10 @@
 name = "cark-ref-counted"
 version = "0.0.1"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Reference counted abstraction over Rc and Arc"
+repository = "https://github.com/cark/cark-ref-counted"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

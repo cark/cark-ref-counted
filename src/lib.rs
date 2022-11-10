@@ -126,7 +126,7 @@ use std::{ops::Deref, rc::Rc, sync::Arc};
 /// ```
 
 pub trait RefCountFamily {
-    type Pointer<T: ?Sized>: Deref<Target = T> + Clone;
+    type Pointer<T: ?Sized>: RefCounted<T>; //Deref<Target = T> + Clone;
     fn new<T>(value: T) -> Self::Pointer<T>;
 }
 
@@ -197,22 +197,22 @@ impl RefCountFamily for ArcMark {
     }
 }
 
-// This doesn't buy us much at all
+// RefCounted
+pub trait RefCounted<T: ?Sized>: Deref<Target = T> + Clone {
+    type Mark: RefCountFamily<Pointer<T> = Self>;
+    fn new<U>(value: U) -> <<Self as RefCounted<T>>::Mark as RefCountFamily>::Pointer<U> {
+        Self::Mark::new(value)
+    }
+}
 
-// pub trait RefCounted<T: ?Sized>: Deref<Target = T> {
-//     type Mark: RefCountMark<Pointer<T> = Self>;
-//     fn new<U>(value: U) -> <<Self as RefCounted<T>>::Mark as RefCountMark>::Pointer<U> {
-//         Self::Mark::new(value)
-//     }
-// }
+impl<T: ?Sized> RefCounted<T> for Rc<T> {
+    type Mark = RcMark;
+}
 
-// impl<T: ?Sized> RefCounted<T> for Rc<T> {
-//     type Mark = RcMark;
-// }
+impl<T: ?Sized> RefCounted<T> for Arc<T> {
+    type Mark = ArcMark;
+}
 
-// impl<T: ?Sized> RefCounted<T> for Arc<T> {
-//     type Mark = ArcMark;
-// }
 
 #[cfg(test)]
 mod tests {

@@ -213,10 +213,89 @@ impl<T: ?Sized> RefCounted<T> for Arc<T> {
     type Mark = ArcMark;
 }
 
+// RefCountedClone
+pub trait RefCountedClone<T: Clone>: RefCounted<T> {
+    fn make_mut(this: &mut Self) -> &mut T;
+}
+
+impl<T: Clone> RefCountedClone<T> for Rc<T> {
+    fn make_mut(this: &mut Self) -> &mut T {
+        Self::make_mut(this)
+    }
+}
+
+// TODO: impl RefcountedClone for arc
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn test_make_mut() {
+        fn actual_test<Mark: RefCountFamily>()
+        // this is less than ideal
+        where
+            <Mark as RefCountFamily>::Pointer<i32>: RefCountedClone<i32>,
+        {
+            let mut data = Mark::Pointer::new(5i32);
+            *RefCountedClone::make_mut(&mut data) += 1;
+            let mut other_data = Mark::Pointer::clone(&data);
+            *RefCountedClone::make_mut(&mut data) += 1;
+            // other incantation, same thing
+            *Mark::Pointer::make_mut(&mut data) += 1;
+            *RefCountedClone::make_mut(&mut other_data) *= 2;
+            assert_eq!(*data, 8);
+            assert_eq!(*other_data, 12);
+        }
+        fn actual_test2<RC: RefCountedClone<i32>>() {
+            let mut data = RC::new(5);
+            *RC::make_mut(&mut data) += 1;
+            let mut other_data = RC::clone(&data);
+            *RC::make_mut(&mut data) += 1;
+            *RC::make_mut(&mut data) += 1;
+            *RC::make_mut(&mut other_data) *= 2;
+            assert_eq!(*data, 8);
+            assert_eq!(*other_data, 12);
+        }
+        actual_test::<RcMark>();
+        actual_test2::<Rc<i32>>();
+    }
+    #[test]
+    fn fake_make_mut() {
+        struct MyRc<T: ?Sized>(T);
+        impl<T: ?Sized> MyRc<T> {}
+        impl<T: Clone> MyRc<T> {
+            fn make_mut(this: &mut Self) -> &mut T {
+                &mut this.0
+            }
+        }
+        let mut a = MyRc(1i32);
+        *MyRc::make_mut(&mut a) += 1;
+        assert_eq!(a.0, 2);
+    }
+
+    // #[test]
+    // fn my_trait_impl_specialization() {
+    //     trait MyTrait<T> {
+    //         fn return_it(this: &Self) -> &T;
+    //     }
+    //     struct A<T>(T);
+    //     impl<T> MyTrait<T> for A<T> {
+    //         default fn return_it(this: &Self) -> &T {
+    //             &this.0
+    //         }
+    //     }
+    //     impl<T: Clone> MyTrait<T> for A<T> {
+    //         // fn clone_it(this: &Self) -> T {
+    //         //     this.0.clone()
+    //         // }
+    //     }
+    //     // impl<T: Clone> MyTrait<T> for A<T> {
+    //     //     default fn return_it(this: &Self) -> T {
+    //     //         this.0.clone()
+    //     //     }
+    //     // }
+    //     //   impl<T: Clone> My
+    // }
 
     #[test]
     fn test_primitive() {

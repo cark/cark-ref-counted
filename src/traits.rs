@@ -27,20 +27,20 @@ pub trait RefCountFamily {
     type Pointer<T: ?Sized>: RefCounted<
         T,
         Mark = Self,
-        WeakMark = Self::WeakMark<T>,
+        //        WeakMark = Self::WeakMark<T>,
         WeakPointer = Self::WeakPointer<T>,
     >;
     type WeakPointer<T: ?Sized>: WeakPointer<
         T,
-        Mark = Self::WeakMark<T>,
+        //        Mark = Self::WeakMark<T>,
         StrongMark = Self,
         StrongPointer = Self::Pointer<T>,
     >;
-    type WeakMark<T: ?Sized>: WeakFamily<
-        StrongMark<T> = Self,
-        StrongPointer<T> = Self::Pointer<T>,
-        Pointer<T> = Self::WeakPointer<T>,
-    >;
+    // type WeakMark<T: ?Sized>: WeakFamily<
+    //     StrongMark<T> = Self,
+    //     StrongPointer<T> = Self::Pointer<T>,
+    //     Pointer<T> = Self::WeakPointer<T>,
+    // >;
     fn new<T>(value: T) -> Self::Pointer<T>;
 }
 
@@ -48,16 +48,16 @@ pub trait RefCounted<T: ?Sized>: Deref<Target = T> + Clone {
     type Mark: RefCountFamily<
         Pointer<T> = Self,
         WeakPointer<T> = Self::WeakPointer,
-        WeakMark<T> = Self::WeakMark,
+        //        WeakMark<T> = Self::WeakMark,
     >;
-    type WeakMark: WeakFamily<
-        Pointer<T> = Self::WeakPointer,
-        StrongPointer<T> = Self,
-        StrongMark<T> = Self::Mark,
-    >;
+    // type WeakMark: WeakFamily<
+    //     Pointer<T> = Self::WeakPointer,
+    //     StrongPointer<T> = Self,
+    //     StrongMark<T> = Self::Mark,
+    // >;
     type WeakPointer: WeakPointer<
         T,
-        Mark = Self::WeakMark,
+        //        Mark = Self::WeakMark,
         StrongMark = Self::Mark,
         StrongPointer = Self,
     >;
@@ -94,42 +94,42 @@ pub trait RefCounted<T: ?Sized>: Deref<Target = T> + Clone {
         T: Sized;
 }
 
-pub trait WeakFamily {
-    type Pointer<T: ?Sized>: WeakPointer<
-        T,
-        Mark = Self,
-        StrongMark = Self::StrongMark<T>,
-        StrongPointer = Self::StrongPointer<T>,
-    >;
-    type StrongPointer<T: ?Sized>: RefCounted<
-        T,
-        Mark = Self::StrongMark<T>,
-        WeakMark = Self,
-        WeakPointer = Self::Pointer<T>,
-    >;
-    type StrongMark<T: ?Sized>: RefCountFamily<
-        Pointer<T> = Self::StrongPointer<T>,
-        WeakMark<T> = Self,
-        WeakPointer<T> = Self::Pointer<T>,
-    >;
-    fn new<T>() -> Self::Pointer<T>;
-}
+// pub trait WeakFamily {
+//     type Pointer<T: ?Sized>: WeakPointer<
+//         T,
+//         Mark = Self,
+//         StrongMark = Self::StrongMark<T>,
+//         StrongPointer = Self::StrongPointer<T>,
+//     >;
+//     type StrongPointer<T: ?Sized>: RefCounted<
+//         T,
+//         Mark = Self::StrongMark<T>,
+//         WeakMark = Self,
+//         WeakPointer = Self::Pointer<T>,
+//     >;
+//     type StrongMark<T: ?Sized>: RefCountFamily<
+//         Pointer<T> = Self::StrongPointer<T>,
+//         WeakMark<T> = Self,
+//         WeakPointer<T> = Self::Pointer<T>,
+//     >;
+//     fn new<T>() -> Self::Pointer<T>;
+// }
 
 pub trait WeakPointer<T: ?Sized>: Clone {
-    type Mark: WeakFamily<
-        Pointer<T> = Self,
-        StrongPointer<T> = Self::StrongPointer,
-        StrongMark<T> = Self::StrongMark,
-    >;
+    // type Mark: WeakFamily<
+    //     Pointer<T> = Self,
+    //     StrongPointer<T> = Self::StrongPointer,
+    //     StrongMark<T> = Self::StrongMark,
+    // >;
     type StrongMark: RefCountFamily<
         Pointer<T> = Self::StrongPointer,
         WeakPointer<T> = Self,
-        WeakMark<T> = Self::Mark,
+        //        WeakMark<T> = Self::Mark,
     >;
     type StrongPointer: RefCounted<
         T,
         Mark = Self::StrongMark,
-        WeakMark = Self::Mark,
+        //        WeakMark = Self::Mark,
         WeakPointer = Self,
     >;
     fn as_ptr(&self) -> *const T;

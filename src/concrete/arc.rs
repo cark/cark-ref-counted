@@ -33,7 +33,6 @@ pub struct ArcMark;
 impl RefCountFamily for ArcMark {
     type Pointer<T: ?Sized> = Arc<T>;
     type WeakPointer<T: ?Sized> = Weak<T>;
-    type WeakMark<T: ?Sized> = WeakArcMark;
     fn new<T>(value: T) -> Self::Pointer<T> {
         Arc::new(value)
     }
@@ -41,7 +40,6 @@ impl RefCountFamily for ArcMark {
 
 impl<T: ?Sized> RefCounted<T> for Arc<T> {
     type Mark = ArcMark;
-    type WeakMark = WeakArcMark;
     type WeakPointer = Weak<T>;
 
     fn as_ptr(this: &Self) -> *const T {
@@ -110,19 +108,7 @@ impl<T: ?Sized> RefCounted<T> for Arc<T> {
     }
 }
 
-pub struct WeakArcMark;
-
-impl WeakFamily for WeakArcMark {
-    type Pointer<T: ?Sized> = Weak<T>;
-    type StrongPointer<T: ?Sized> = Arc<T>;
-    type StrongMark<T: ?Sized> = ArcMark;
-    fn new<T>() -> Self::Pointer<T> {
-        Weak::new()
-    }
-}
-
 impl<T: ?Sized> WeakPointer<T> for Weak<T> {
-    type Mark = WeakArcMark;
     type StrongMark = ArcMark;
     type StrongPointer = Arc<T>;
 

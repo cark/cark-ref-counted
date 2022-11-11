@@ -99,136 +99,38 @@ A shot in the dark: Maybe would it be possible for the std team to implement Coe
 - Rust programming language forum user [semicoleon](https://users.rust-lang.org/u/semicoleon) for pointing me toward the CoerceUnsized trait.
  */
 
-use std::{ops::Deref, rc::Rc, sync::Arc};
+pub mod concrete;
+pub mod traits;
+pub use concrete::arc::*;
+pub use concrete::rc::*;
+pub use traits::*;
 
-/// The trait used to abstract over our concrete pointer types.
-///
-/// In this library, [RcMark] and [ArcMark] are implementing it.
-///
-/// ```
-/// # use cark_ref_counted::*;
-/// # use std::rc::Rc;
-/// struct Foo<R: RefCountFamily> {
-///     name: R::Pointer<String>,
-/// }
-/// impl<R: RefCountFamily> Foo<R> {
-///     fn name(&self) -> &str {
-///         &self.name
-///     }
-///     fn new(name: &str) -> Self {
-///         Self {
-///             name: R::new(name.to_owned()),
-///         }
-///     }
-/// }
-/// let foo = Foo::<RcMark>::new("John Doe");
-/// assert_eq!(foo.name(), "John Doe");
-/// ```
-
-pub trait RefCountFamily {
-    type Pointer<T: ?Sized>: RefCounted<T>; //Deref<Target = T> + Clone;
-    fn new<T>(value: T) -> Self::Pointer<T>;
+// WeakFamily
+pub trait WeakFamily {
+    type Pointer<T: ?Sized>: WeakPointer<T>;
 }
 
-/// This marker type implements [RefCountFamily] for [Rc].
-///
-/// It is used for marking [RefCountFamily] users when creating
-/// a new [Rc] pointer.
-///
-/// ```
-/// # use cark_ref_counted::*;
-/// # use std::rc::Rc;
-/// struct Foo<R: RefCountFamily> {
-///     name: R::Pointer<String>,
-/// }
-/// impl<R: RefCountFamily> Foo<R> {
-///     fn name(&self) -> &str {
-///         &self.name
-///     }
-///     fn new(name: &str) -> Self {
-///         Self {
-///             name: R::new(name.to_owned()),
-///         }
-///     }
-/// }
-/// let foo = Foo::<RcMark>::new("John Doe");
-/// assert_eq!(foo.name(), "John Doe");
-/// ```
-
-pub struct RcMark;
-
-impl RefCountFamily for RcMark {
-    type Pointer<T: ?Sized> = Rc<T>;
-    fn new<T>(value: T) -> Self::Pointer<T> {
-        Rc::new(value)
-    }
+// WeakPointer
+pub trait WeakPointer<T: ?Sized> {
+    type Mark: WeakFamily<Pointer<T> = Self>;
 }
-
-/// This marker type implements [RefCountFamily] for [Arc].
-///
-/// It is used for marking [RefCountFamily] users when creating
-/// a new [Arc] pointer.
-///
-/// ```
-/// # use cark_ref_counted::*;
-/// # use std::sync::Arc;
-/// struct Foo<R: RefCountFamily> {
-///     name: R::Pointer<String>,
-/// }
-/// impl<R: RefCountFamily> Foo<R> {
-///     fn name(&self) -> &str {
-///         &self.name
-///     }
-///     fn new(name: &str) -> Self {
-///         Self {
-///             name: R::new(name.to_owned()),
-///         }
-///     }
-/// }
-/// let foo = Foo::<ArcMark>::new("John Doe");
-/// assert_eq!(foo.name(), "John Doe");
-/// ```
-pub struct ArcMark;
-
-impl RefCountFamily for ArcMark {
-    type Pointer<T: ?Sized> = Arc<T>;
-    fn new<T>(value: T) -> Self::Pointer<T> {
-        Arc::new(value)
-    }
-}
-
-// RefCounted
-pub trait RefCounted<T: ?Sized>: Deref<Target = T> + Clone {
-    type Mark: RefCountFamily<Pointer<T> = Self>;
-    fn new<U>(value: U) -> <<Self as RefCounted<T>>::Mark as RefCountFamily>::Pointer<U> {
-        Self::Mark::new(value)
-    }
-}
-
-impl<T: ?Sized> RefCounted<T> for Rc<T> {
-    type Mark = RcMark;
-}
-
-impl<T: ?Sized> RefCounted<T> for Arc<T> {
-    type Mark = ArcMark;
-}
-
-// RefCountedClone
-pub trait RefCountedClone<T: Clone>: RefCounted<T> {
-    fn make_mut(this: &mut Self) -> &mut T;
-}
-
-impl<T: Clone> RefCountedClone<T> for Rc<T> {
-    fn make_mut(this: &mut Self) -> &mut T {
-        Self::make_mut(this)
-    }
-}
-
-// TODO: impl RefcountedClone for arc
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::rc::Rc;
+
+    #[test]
+    fn test_ad_ptr() {
+        fn actual_test<RC: RefCounted<String>>() {
+            let x = RC::new("hello".to_owned());
+            let y = RC::clone(&x);
+            let x_ptr = RC::as_ptr(&x);
+            assert_eq!(x_ptr, RC::as_ptr(&y));
+            assert_eq!(unsafe { &*x_ptr }, "hello");
+        }
+        actual_test::<Rc<_>>()
+    }
     #[test]
     fn test_make_mut() {
         fn actual_test<Mark: RefCountFamily>()
@@ -246,6 +148,7 @@ mod tests {
             assert_eq!(*data, 8);
             assert_eq!(*other_data, 12);
         }
+
         fn actual_test2<RC: RefCountedClone<i32>>() {
             let mut data = RC::new(5);
             *RC::make_mut(&mut data) += 1;
@@ -257,45 +160,8 @@ mod tests {
             assert_eq!(*other_data, 12);
         }
         actual_test::<RcMark>();
-        actual_test2::<Rc<i32>>();
+        actual_test2::<Rc<_>>();
     }
-    #[test]
-    fn fake_make_mut() {
-        struct MyRc<T: ?Sized>(T);
-        impl<T: ?Sized> MyRc<T> {}
-        impl<T: Clone> MyRc<T> {
-            fn make_mut(this: &mut Self) -> &mut T {
-                &mut this.0
-            }
-        }
-        let mut a = MyRc(1i32);
-        *MyRc::make_mut(&mut a) += 1;
-        assert_eq!(a.0, 2);
-    }
-
-    // #[test]
-    // fn my_trait_impl_specialization() {
-    //     trait MyTrait<T> {
-    //         fn return_it(this: &Self) -> &T;
-    //     }
-    //     struct A<T>(T);
-    //     impl<T> MyTrait<T> for A<T> {
-    //         default fn return_it(this: &Self) -> &T {
-    //             &this.0
-    //         }
-    //     }
-    //     impl<T: Clone> MyTrait<T> for A<T> {
-    //         // fn clone_it(this: &Self) -> T {
-    //         //     this.0.clone()
-    //         // }
-    //     }
-    //     // impl<T: Clone> MyTrait<T> for A<T> {
-    //     //     default fn return_it(this: &Self) -> T {
-    //     //         this.0.clone()
-    //     //     }
-    //     // }
-    //     //   impl<T: Clone> My
-    // }
 
     #[test]
     fn test_primitive() {

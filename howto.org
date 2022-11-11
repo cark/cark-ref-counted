@@ -2,3 +2,46 @@
 cargo watch -c -x "test --features nightly"
 * update README.md
 cargo readme > README.md
+* TODO
+** response to issue number 1
+ng is yet another can of worms. Let's talk about `make_mut`.
+
+Let's see this for `Rc<T>`. This [method](https://doc.rust-lang.org/src/alloc/rc.rs.html#1187) is defined in an [implementation](https://doc.rust-lang.org/src/alloc/rc.rs.html#1133) for RC where `T: Clone`.
+
+The issue here is that we cannot do specialization in our case. This is because it's not a specialization on a simple struct, but on the trait associated to a struct.  
+
+This is possible:
+```rust
+        struct MyRc<T: ?Sized>(T);
+        impl<T: ?Sized> MyRc<T> {}
+        impl<T: Clone> MyRc<T> {
+            fn make_mut(this: &mut Self) -> &mut T {
+                &mut this.0
+            }
+        }
+        let mut a = MyRc(1i32);
+        *MyRc::make_mut(&mut a) += 1;
+        assert_eq!(a.0, 2);
+```
+But we cannot do this:
+```rust
+        trait MyTrait<T> {
+            fn return_it(this: &Self) -> &T;
+        }
+        struct A<T>(T);
+        impl<T> MyTrait<T> for A<T> {
+            // we're using the years away from ready 'specialization' feature (RFC1210)
+            default fn return_it(this: &Self) -> &T {
+                &this.0
+            }
+        }
+        // This doesn't fly
+        impl<T: Clone> MyTrait<T> for A<T> {
+            fn clone_it(this: &Self) -> T {
+                this.0.clone()
+            }
+        }
+```
+And rightly so, `clone_it` doesn't belong to `MyTrait`.
+
+So in our case, `RefCounted` which we intended to be implemented by Rc and Arc, would itself need to be a trait family then we would have a combinatorial explosion of our "concrete traits" of all the required specializations. It isn't even clear that this would help at all and would, at best, introduce some very complex type signatures for the end user.

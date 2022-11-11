@@ -95,7 +95,7 @@ A shot in the dark: Maybe would it be possible for the std team to implement Coe
 
 ## Thanks
 
-- Reddit user [Eh2406](https://www.reddit.com/user/Eh2406) for pushing.
+- Reddit user [Eh2406](https://www.reddit.com/user/Eh2406).
 - Rust programming language forum user [semicoleon](https://users.rust-lang.org/u/semicoleon) for pointing me toward the CoerceUnsized trait.
  */
 
@@ -106,14 +106,6 @@ pub use concrete::rc::*;
 pub use traits::*;
 
 // WeakFamily
-pub trait WeakFamily {
-    type Pointer<T: ?Sized>: WeakPointer<T>;
-}
-
-// WeakPointer
-pub trait WeakPointer<T: ?Sized> {
-    type Mark: WeakFamily<Pointer<T> = Self>;
-}
 
 #[cfg(test)]
 mod tests {
@@ -121,7 +113,91 @@ mod tests {
     use std::rc::Rc;
 
     #[test]
-    fn test_ad_ptr() {
+    fn test_try_unwrap() {
+        fn actual_test<RC: RefCounted<i32> + std::cmp::PartialEq + std::fmt::Debug>() {
+            let x = RC::new(3);
+            assert_eq!(RC::try_unwrap(x), Ok(3));
+            let x = RC::new(4);
+            let _y = RC::clone(&x);
+            assert_eq!(*RC::try_unwrap(x).unwrap_err(), 4);
+        }
+        actual_test::<Rc<_>>()
+    }
+
+    #[test]
+    fn test_new_cyclic() {
+        struct Gadget<RC: RefCountFamily> {
+            me: RC::WeakPointer<Self>,
+        }
+        impl<RC: RefCountFamily> Gadget<RC> {
+            #[allow(clippy::new_ret_no_self)]
+            fn new() -> RC::Pointer<Self> {
+                RC::Pointer::new_cyclic(|me| Gadget { me: me.clone() })
+            }
+            fn me(&self) -> RC::Pointer<Self> {
+                self.me.upgrade().unwrap()
+            }
+        }
+
+        let g = Gadget::<RcMark>::new();
+        assert!(Rc::ptr_eq(&g, &g.me()));
+    }
+
+    #[test]
+    fn test_get_mut() {
+        fn actual_test<RC: RefCounted<i32>>() {
+            let mut x = RC::new(3);
+            *RC::get_mut(&mut x).unwrap() = 4;
+            assert_eq!(*x, 4);
+            let _y = RC::clone(&x);
+            assert!(RC::get_mut(&mut x).is_none());
+        }
+        actual_test::<Rc<_>>()
+    }
+
+    #[test]
+    fn test_into_raw() {
+        fn actual_test<RC: RefCounted<String>>() {
+            let x = RC::new("hello".to_owned());
+            let x_ptr = RC::into_raw(x);
+            assert_eq!(unsafe { &*x_ptr }, "hello");
+        }
+        actual_test::<Rc<_>>()
+    }
+
+    #[test]
+    fn test_increment_strong_count() {
+        fn actual_test<RC: RefCounted<i32>>() {
+            let five = RC::new(5);
+            unsafe {
+                let ptr = RC::into_raw(five);
+                RC::increment_strong_count(ptr);
+                let five = RC::from_raw(ptr);
+                assert_eq!(2, RC::strong_count(&five));
+            }
+        }
+        actual_test::<Rc<_>>()
+    }
+
+    #[test]
+    fn test_decrement_strong_count() {
+        fn actual_test<RC: RefCounted<i32>>() {
+            let five = RC::new(5);
+            unsafe {
+                let ptr = RC::into_raw(five);
+                RC::increment_strong_count(ptr);
+
+                let five = RC::from_raw(ptr);
+                assert_eq!(2, RC::strong_count(&five));
+                RC::decrement_strong_count(ptr);
+                assert_eq!(1, RC::strong_count(&five));
+            }
+        }
+        actual_test::<Rc<_>>()
+    }
+
+    #[test]
+    fn test_as_ptr() {
         fn actual_test<RC: RefCounted<String>>() {
             let x = RC::new("hello".to_owned());
             let y = RC::clone(&x);
@@ -131,25 +207,115 @@ mod tests {
         }
         actual_test::<Rc<_>>()
     }
+
+    #[test]
+    fn test_downgrade() {
+        fn actual_test<RC: RefCounted<i32>>() {
+            let five = RC::new(5);
+            let _weak_five = RC::downgrade(&five);
+            assert_eq!(1, RC::weak_count(&five));
+        }
+        actual_test::<Rc<_>>()
+    }
+
+    #[test]
+    fn test_weak_upgrade() {
+        fn actual_test<RC: RefCounted<i32>>() {
+            let five = RC::new(5);
+            let weak_five = RC::downgrade(&five);
+            let strong_five = weak_five.upgrade();
+            assert!(strong_five.is_some());
+            drop(strong_five);
+            drop(five);
+            assert!(weak_five.upgrade().is_none());
+        }
+        actual_test::<Rc<_>>();
+    }
+
+    #[test]
+    fn test_weak_ptr_eq() {
+        fn actual_test<RC: RefCounted<i32>>() {
+            let first_rc = RC::new(5);
+            let first = RC::downgrade(&first_rc);
+            let second = RC::downgrade(&first_rc);
+            assert!(first.ptr_eq(&second));
+            let third_rc = RC::new(5);
+            let third = RC::downgrade(&third_rc);
+            assert!(!first.ptr_eq(&third));
+        }
+        actual_test::<Rc<_>>();
+    }
+
+    #[test]
+    fn test_weak_as_ptr() {
+        fn actual_test<RC: RefCounted<String>>() {
+            use std::ptr;
+            let strong = RC::new("hello".to_owned());
+            let weak = RC::downgrade(&strong);
+            assert!(ptr::eq(&*strong, weak.as_ptr()));
+            assert_eq!("hello", unsafe { &*weak.as_ptr() });
+            drop(strong)
+        }
+        actual_test::<Rc<_>>()
+    }
+
+    #[test]
+    fn test_weak_from_raw() {
+        fn actual_test<RF: RefCountFamily>() {
+            let strong = RF::new("hello".to_owned());
+            let raw1 = RF::Pointer::downgrade(&strong).into_raw();
+            let raw2 = RF::Pointer::downgrade(&strong).into_raw();
+            assert_eq!(2, RF::Pointer::weak_count(&strong));
+            assert_eq!(
+                "hello",
+                &*unsafe { RF::WeakPointer::from_raw(raw1) }
+                    .upgrade()
+                    .unwrap()
+            );
+            assert_eq!(1, RF::Pointer::weak_count(&strong));
+            drop(strong);
+            assert!(unsafe { RF::WeakPointer::from_raw(raw2) }
+                .upgrade()
+                .is_none());
+        }
+        actual_test::<RcMark>();
+
+        fn actual_test2<RC: RefCounted<String>>() {
+            let strong = RC::new("hello".to_owned());
+            let raw1 = RC::downgrade(&strong).into_raw();
+            let raw2 = RC::downgrade(&strong).into_raw();
+            assert_eq!(2, RC::weak_count(&strong));
+            assert_eq!(
+                "hello",
+                &*unsafe { RC::WeakPointer::from_raw(raw1) }
+                    .upgrade()
+                    .unwrap()
+            );
+            assert_eq!(1, RC::weak_count(&strong));
+            drop(strong);
+            assert!(unsafe { RC::WeakPointer::from_raw(raw2) }
+                .upgrade()
+                .is_none());
+        }
+        actual_test2::<Rc<_>>();
+    }
+
     #[test]
     fn test_make_mut() {
-        fn actual_test<Mark: RefCountFamily>()
-        // this is less than ideal
-        where
-            <Mark as RefCountFamily>::Pointer<i32>: RefCountedClone<i32>,
-        {
-            let mut data = Mark::Pointer::new(5i32);
-            *RefCountedClone::make_mut(&mut data) += 1;
+        fn actual_test<Mark: RefCountFamily>() {
+            let mut data = Mark::new(5i32);
+            *Mark::Pointer::make_mut(&mut data) += 1;
             let mut other_data = Mark::Pointer::clone(&data);
-            *RefCountedClone::make_mut(&mut data) += 1;
+            *Mark::Pointer::make_mut(&mut data) += 1;
             // other incantation, same thing
             *Mark::Pointer::make_mut(&mut data) += 1;
-            *RefCountedClone::make_mut(&mut other_data) *= 2;
+            *Mark::Pointer::make_mut(&mut other_data) *= 2;
             assert_eq!(*data, 8);
             assert_eq!(*other_data, 12);
         }
+        actual_test::<RcMark>();
 
-        fn actual_test2<RC: RefCountedClone<i32>>() {
+        fn actual_test2<RC: RefCounted<i32>>() {
             let mut data = RC::new(5);
             *RC::make_mut(&mut data) += 1;
             let mut other_data = RC::clone(&data);
@@ -159,7 +325,6 @@ mod tests {
             assert_eq!(*data, 8);
             assert_eq!(*other_data, 12);
         }
-        actual_test::<RcMark>();
         actual_test2::<Rc<_>>();
     }
 

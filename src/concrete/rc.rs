@@ -12,10 +12,10 @@ use std::{
 /// ```
 /// # use cark_ref_counted::*;
 /// # use std::rc::Rc;
-/// struct Foo<R: RefCountFamily> {
+/// struct Foo<R: SmartPointerFamily> {
 ///     name: R::Pointer<String>,
 /// }
-/// impl<R: RefCountFamily> Foo<R> {
+/// impl<R: SmartPointerFamily> Foo<R> {
 ///     fn name(&self) -> &str {
 ///         &self.name
 ///     }
@@ -30,16 +30,19 @@ use std::{
 /// ```
 pub struct RcMark;
 
-impl RefCountFamily for RcMark {
+impl SmartPointerFamily for RcMark {
     type Pointer<T: ?Sized> = Rc<T>;
-    type WeakPointer<T: ?Sized> = Weak<T>;
     fn new<T>(value: T) -> Self::Pointer<T> {
         Rc::new(value)
     }
 }
 
-impl<T: ?Sized> RefCounted<T> for Rc<T> {
+impl<T: ?Sized> SmartPointer<T> for Rc<T> {
     type Mark = RcMark;
+}
+
+impl<T: ?Sized> RefCounted<T> for Rc<T> {
+    type StrongMark = RcMark;
     type WeakPointer = Weak<T>;
 
     fn as_ptr(this: &Self) -> *const T {

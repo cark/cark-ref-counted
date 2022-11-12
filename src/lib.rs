@@ -12,11 +12,11 @@ Your library needs some kind of a reference counted pointer, but you want to lea
 use cark_ref_counted::*;
 
 // My library struct
-struct Foo<R: RefCountFamily> {
+struct Foo<R: SmartPointerFamily> {
     name: R::Pointer<String>,
 }
 
-impl<R: RefCountFamily> Foo<R> {
+impl<R: SmartPointerFamily> Foo<R> {
     fn name(&self) -> &str {
         &self.name
     }
@@ -43,7 +43,7 @@ There are some places where the type inference needs a little bit of help.
 ```
 # use cark_ref_counted::*;
 # use std::rc::Rc;
-fn wrap<R: RefCountFamily>(value: i32) -> R::Pointer<i32> {
+fn wrap<R: SmartPointerFamily>(value: i32) -> R::Pointer<i32> {
     R::new(value)
 }
 
@@ -101,11 +101,9 @@ A shot in the dark: Maybe would it be possible for the std team to implement Coe
 
 pub mod concrete;
 pub mod traits;
-pub use concrete::arc::*;
+//pub use concrete::arc::*;
 pub use concrete::rc::*;
 pub use traits::*;
-
-// WeakFamily
 
 #[cfg(test)]
 mod tests {
@@ -126,15 +124,24 @@ mod tests {
 
     #[test]
     fn test_new_cyclic() {
-        struct Gadget<RC: RefCountFamily> {
-            me: RC::WeakPointer<Self>,
+        struct Gadget<P>
+        where
+            P: SmartPointerFamily,
+            P::Pointer<Self>: RefCounted<Self>,
+        {
+            // TODO: ergonomics
+            me: <<P as SmartPointerFamily>::Pointer<Gadget<P>> as RefCounted<Self>>::WeakPointer,
         }
-        impl<RC: RefCountFamily> Gadget<RC> {
+        impl<P> Gadget<P>
+        where
+            P: SmartPointerFamily,
+            P::Pointer<Self>: RefCounted<Self>,
+        {
             #[allow(clippy::new_ret_no_self)]
-            fn new() -> RC::Pointer<Self> {
-                RC::Pointer::new_cyclic(|me| Gadget { me: me.clone() })
+            fn new() -> P::Pointer<Self> {
+                P::Pointer::new_cyclic(|me| Gadget { me: me.clone() })
             }
-            fn me(&self) -> RC::Pointer<Self> {
+            fn me(&self) -> P::Pointer<Self> {
                 self.me.upgrade().unwrap()
             }
         }
@@ -261,25 +268,6 @@ mod tests {
 
     #[test]
     fn test_weak_from_raw() {
-        fn actual_test<RF: RefCountFamily>() {
-            let strong = RF::new("hello".to_owned());
-            let raw1 = RF::Pointer::downgrade(&strong).into_raw();
-            let raw2 = RF::Pointer::downgrade(&strong).into_raw();
-            assert_eq!(2, RF::Pointer::weak_count(&strong));
-            assert_eq!(
-                "hello",
-                &*unsafe { RF::WeakPointer::from_raw(raw1) }
-                    .upgrade()
-                    .unwrap()
-            );
-            assert_eq!(1, RF::Pointer::weak_count(&strong));
-            drop(strong);
-            assert!(unsafe { RF::WeakPointer::from_raw(raw2) }
-                .upgrade()
-                .is_none());
-        }
-        actual_test::<RcMark>();
-
         fn actual_test2<RC: RefCounted<String>>() {
             let strong = RC::new("hello".to_owned());
             let raw1 = RC::downgrade(&strong).into_raw();
@@ -302,7 +290,11 @@ mod tests {
 
     #[test]
     fn test_make_mut() {
-        fn actual_test<Mark: RefCountFamily>() {
+        fn actual_test<Mark>()
+        where
+            Mark: SmartPointerFamily,
+            Mark::Pointer<i32>: RefCounted<i32>,
+        {
             let mut data = Mark::new(5i32);
             *Mark::Pointer::make_mut(&mut data) += 1;
             let mut other_data = Mark::Pointer::clone(&data);
@@ -330,15 +322,15 @@ mod tests {
 
     #[test]
     fn test_primitive() {
-        fn wrap<R: RefCountFamily>(value: i32) -> R::Pointer<i32> {
+        fn wrap<R>(value: i32) -> R::Pointer<i32>
+        where
+            R: SmartPointerFamily,
+            R::Pointer<i32>: RefCounted<i32>,
+        {
             R::new(value)
         }
         let _a = wrap::<RcMark>(1);
-        // How can we trick type inference to accept this :
-        // let _a: Rc<i32> = wrap(1);
-        // Standard Rc doesn't need help
-        let _a: Rc<i32> = Rc::new(1);
-        // So we need to do this
+        // cannot let the inference do its job
         let _a: Rc<i32> = wrap::<RcMark>(1);
     }
 
@@ -352,10 +344,10 @@ mod tests {
                 &self.name
             }
         }
-        fn wrap<R: RefCountFamily>(value: Foo) -> R::Pointer<Foo> {
+        fn wrap<R: RefCounted<Foo>>(value: Foo) -> R {
             R::new(value)
         }
-        let a = wrap::<RcMark>(Foo {
+        let a = wrap::<Rc<_>>(Foo {
             name: "Bar".to_owned(),
         });
         assert_eq!(a.name(), "Bar");
@@ -363,10 +355,10 @@ mod tests {
 
     #[test]
     fn test_wrapping() {
-        struct Foo<R: RefCountFamily> {
-            name: R::Pointer<String>,
+        struct Foo<R: RefCounted<String>> {
+            name: R,
         }
-        impl<R: RefCountFamily> Foo<R> {
+        impl<R: RefCounted<String>> Foo<R> {
             fn name(&self) -> &str {
                 &self.name
             }
@@ -376,7 +368,7 @@ mod tests {
                 }
             }
         }
-        let foo = Foo::<RcMark>::new("John Doe");
+        let foo = Foo::<Rc<_>>::new("John Doe");
         assert_eq!(foo.name(), "John Doe");
     }
 
@@ -395,32 +387,58 @@ mod tests {
 
         // Do this generically
         // the c parameter has to be generic here because it isn't Sized
-        fn wrap<T: Fn(i32) -> i32, R: RefCountFamily>(c: T) -> R::Pointer<T> {
+        fn wrap<T: Fn(i32) -> i32, R: RefCounted<T>>(c: T) -> R {
             R::new(c)
         }
-        let _a = wrap::<_, RcMark>(|a| a + 1);
-        let _a: Rc<dyn Fn(i32) -> i32> = wrap::<_, RcMark>(|a| a + 1);
+        let _a = wrap::<_, Rc<_>>(|a| a + 1);
+        let _a: Rc<dyn Fn(i32) -> i32> = wrap::<_, Rc<_>>(|a| a + 1);
 
         #[cfg(feature = "nightly")]
         {
             use std::ops::CoerceUnsized;
 
             // Inside a type that needs dyn Fn
-            struct Foo<Mark: RefCountFamily>(Mark::Pointer<dyn Fn(i32) -> i32>);
-            impl<Mark: RefCountFamily> Foo<Mark> {
+            struct Foo<R: SmartPointerFamily>(R::Pointer<dyn Fn(i32) -> i32>)
+            where
+                R::Pointer<dyn Fn(i32) -> i32>: RefCounted<dyn Fn(i32) -> i32>;
+            impl<R: SmartPointerFamily> Foo<R>
+            where
+                R::Pointer<dyn Fn(i32) -> i32>: RefCounted<dyn Fn(i32) -> i32>,
+            {
                 // the c parmeter has to be generic here because it wouldn't be Sized
                 fn wrap<T: Fn(i32) -> i32 + 'static>(c: T) -> Self
                 where
-                    Mark::Pointer<T>: CoerceUnsized<Mark::Pointer<dyn Fn(i32) -> i32>>,
+                    R::Pointer<T>: CoerceUnsized<R::Pointer<dyn Fn(i32) -> i32>>,
                 {
                     // This cannot be done without the coerce_unsized nightly feature
                     // which has to be declared right here, because we cannot assume anything
                     // about the c parameter.
-                    Self(Mark::new(c))
+                    Self(R::new(c))
                 }
             }
             let _a = Foo::<RcMark>::wrap(|a| a + 1).0;
         }
+
+        // #[cfg(feature = "nightly")]
+        // {
+        //     use std::ops::CoerceUnsized;
+
+        //     // Inside a type that needs dyn Fn
+        //     struct Foo<R: RefCounted<dyn Fn(i32) -> i32>>(R);
+        //     impl<R: RefCounted<dyn Fn(i32) -> i32>> Foo<R> {
+        //         // the c parmeter has to be generic here because it wouldn't be Sized
+        //         fn wrap<T: Fn(i32) -> i32 + 'static>(c: T) -> Self
+        //         where
+        //             R: CoerceUnsized<RefCounted<dyn Fn(i32) -> i32, >>,
+        //         {
+        //             // This cannot be done without the coerce_unsized nightly feature
+        //             // which has to be declared right here, because we cannot assume anything
+        //             // about the c parameter.
+        //             Self(R::new(c))
+        //         }
+        //     }
+        //     let _a = Foo::<RcMark>::wrap(|a| a + 1).0;
+        // }
 
         // #[cfg(feature = "nightly")]
         // {
